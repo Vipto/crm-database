@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import {
   Users,
   CheckCircle2,
-  Trash2,
   Download,
   X,
   Sparkles,
@@ -16,7 +15,7 @@ interface BulkActionsBarProps {
   onOpenAssignModal: () => void;
   onBulkStatusChange: (status: SellerStatus) => void;
   onExportSelected: () => void;
-  onBulkDelete: () => void;
+  onBulkDelete?: () => void;
 }
 
 const BULK_STATUS_OPTIONS: SellerStatus[] = [
@@ -34,9 +33,8 @@ export const BulkActionsBar: React.FC<BulkActionsBarProps> = ({
   onOpenAssignModal,
   onBulkStatusChange,
   onExportSelected,
-  onBulkDelete,
 }) => {
-  const { canBulkAssign, canDeleteSellers } = useAuth();
+  const { canBulkAssign } = useAuth();
   const [selectedStatus, setSelectedStatus] = useState<string>('');
 
   if (selectedCount === 0) return null;
@@ -89,17 +87,6 @@ export const BulkActionsBar: React.FC<BulkActionsBarProps> = ({
           <Download className="w-3.5 h-3.5 text-cyan-400" />
           <span>Export CSV</span>
         </button>
-
-        {/* Delete (Admin Only) */}
-        {canDeleteSellers && (
-          <button
-            onClick={onBulkDelete}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-950/50 hover:bg-rose-900/60 text-rose-300 hover:text-rose-200 transition-colors border border-rose-800/60 font-medium"
-          >
-            <Trash2 className="w-3.5 h-3.5 text-rose-400" />
-            <span>Delete</span>
-          </button>
-        )}
       </div>
 
       <button

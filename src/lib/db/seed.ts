@@ -268,5 +268,67 @@ export async function clearAndSeedRealDatabase(onProgress?: (step: string) => vo
 }
 
 export async function seedViptoDatabase(onProgress?: (step: string) => void): Promise<void> {
-  return clearAndSeedRealDatabase(onProgress);
+  const isEmpty = await checkDatabaseEmpty();
+  if (!isEmpty) {
+    if (onProgress) onProgress('Database already contains seller records. Skipping overwrite.');
+    return;
+  }
+
+  if (onProgress) onProgress(`Importing initial ${DEDUPLICATED_CRM_DATA.length} store records...`);
+
+  const CHUNK_SIZE = 250;
+  for (let i = 0; i < DEDUPLICATED_CRM_DATA.length; i += CHUNK_SIZE) {
+    const chunk = DEDUPLICATED_CRM_DATA.slice(i, i + CHUNK_SIZE);
+    const sellerBatch = writeBatch(db);
+
+    chunk.forEach((s) => {
+      const sellerRef = doc(collection(db, 'sellers'));
+      const cleanPhone = s.phone ? s.phone.replace(/\D/g, '').slice(-10) : '';
+      const searchKeywords = generateSearchKeywords({
+        name: s.storeName,
+        shopName: s.storeName,
+        phone: cleanPhone,
+        category: s.category,
+      });
+
+      const isMap = s.link.includes('maps') || s.link.includes('goo.gl');
+      const isInstagram = s.link.includes('instagram.com');
+      const creator = normalizeCreatorName(s.createdBy);
+
+      const dataPayload: any = {
+        name: s.storeName.trim(),
+        shopName: s.storeName.trim(),
+        googleMapOrInstagramLink: s.link.trim(),
+        websiteUrl: s.link.trim() || '',
+        category: s.category || 'Fashion',
+        phone: cleanPhone,
+        whatsapp: cleanPhone,
+        sellerStatus: s.status || 'Not started',
+        contactStatus: 'Not Contacted',
+        onboardingStatus: 'Not Started',
+        priority: 'Medium',
+        leadSource: isInstagram ? 'Instagram' : isMap ? 'Google Maps' : 'Field Research',
+        createdByName: creator,
+        city: 'Pune',
+        searchKeywords,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
+
+      if (isMap && s.link.trim()) {
+        dataPayload.location = { googleMapsUrl: s.link.trim() };
+      }
+      if (isInstagram && s.link.trim()) {
+        dataPayload.socialLinks = { instagram: s.link.trim() };
+      }
+
+      sellerBatch.set(sellerRef, dataPayload);
+    });
+
+    await sellerBatch.commit();
+  }
+
+  localStorage.setItem('vipto_crm_synced_real_data_v5', 'true');
+  if (onProgress) onProgress(`Loaded ${DEDUPLICATED_CRM_DATA.length} unique stores!`);
 }
+

@@ -9,7 +9,6 @@ import {
   Users,
   Plus,
   Edit2,
-  Trash2,
   ArrowUpDown,
   Check,
   X,
@@ -29,7 +28,7 @@ interface SellersTableProps {
   onToggleSelectAll: () => void;
   onSelectSeller: (id: string) => void;
   onEditSeller: (seller: Seller) => void;
-  onDeleteSeller: (seller: Seller) => void;
+  onDeleteSeller?: (seller: Seller) => void;
   onSortChange: (field: any) => void;
   sortField: string;
   sortDirection: 'asc' | 'desc';
@@ -818,25 +817,15 @@ export const SellersTable: React.FC<SellersTableProps> = ({
                     </div>
                   </td>
 
-                  {/* Row Actions: Edit Row & Delete */}
+                  {/* Row Action: Edit Row */}
                   <td className="px-1 text-center" onClick={(e) => e.stopPropagation()}>
-                    <div className="flex items-center justify-center gap-0.5">
+                    <div className="flex items-center justify-center">
                       <button
                         onClick={(e) => handleStartRowEdit(seller, e)}
                         className="p-1 rounded text-[#737373] hover:text-blue-400 hover:bg-[#222] transition-colors"
                         title="Edit store row"
                       >
                         <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDeleteSeller(seller);
-                        }}
-                        className="p-1 rounded text-[#737373] hover:text-rose-400 hover:bg-[#222] transition-colors"
-                        title="Delete store record"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </td>

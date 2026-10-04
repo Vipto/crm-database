@@ -15,14 +15,12 @@ import { SellersTable } from './SellersTable';
 import { SellersFilterDrawer } from './SellersFilterDrawer';
 import { BulkActionsBar } from './BulkActionsBar';
 import { AddSellerModal } from './AddSellerModal';
-import { ConfirmationModal } from '../common/ConfirmationModal';
 import { TableSkeleton } from '../common/SkeletonLoader';
 import { useCRM } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import {
   getSellersPaginated,
-  deleteSeller,
   bulkUpdateSellerStatus,
 } from '../../lib/db/sellers';
 import { exportSellersToCSV } from '../../lib/utils/csv';
@@ -44,7 +42,7 @@ export const SellersView: React.FC = () => {
     triggerRefresh,
   } = useCRM();
 
-  const { currentUser, canDeleteSellers } = useAuth();
+  const { currentUser } = useAuth();
   const { success, error } = useToast();
 
   const [isFilterDrawerOpen, setIsFilterDrawerOpen] = useState(false);
@@ -60,8 +58,6 @@ export const SellersView: React.FC = () => {
   // Selection & Modals
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [editingSeller, setEditingSeller] = useState<Seller | null>(null);
-  const [deletingSeller, setDeletingSeller] = useState<Seller | null>(null);
-  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
 
   // Initial fetch of 40 records
   const fetchInitialSellers = useCallback(async () => {
@@ -144,38 +140,6 @@ export const SellersView: React.FC = () => {
     const selectedSellers = sellers.filter((s) => selectedIds.includes(s.id));
     exportSellersToCSV(selectedSellers, `vipto-crm-database-${Date.now()}.csv`);
     success('Export Initiated', `Exported ${selectedSellers.length} records to CSV.`);
-  };
-
-  const handleSingleDelete = async () => {
-    if (!deletingSeller) return;
-    const sellerId = deletingSeller.id;
-    const storeName = deletingSeller.shopName || deletingSeller.name;
-    try {
-      setSellers((prev) => prev.filter((s) => s.id !== sellerId));
-      setDeletingSeller(null);
-      await deleteSeller(sellerId, storeName, currentUser);
-      success('Store Deleted', `Removed "${storeName}" from CRM Database.`);
-      triggerRefresh();
-    } catch (err: any) {
-      error('Delete Failed', err?.message);
-    }
-  };
-
-  const handleBulkDelete = async () => {
-    try {
-      const idsToDelete = [...selectedIds];
-      setSellers((prev) => prev.filter((s) => !idsToDelete.includes(s.id)));
-      setSelectedIds([]);
-      setIsBulkDeleteModalOpen(false);
-      for (const id of idsToDelete) {
-        const item = sellers.find((s) => s.id === id);
-        await deleteSeller(id, item?.shopName || 'Store', currentUser);
-      }
-      success('Records Deleted', `Deleted ${idsToDelete.length} store records.`);
-      triggerRefresh();
-    } catch (err: any) {
-      error('Bulk Delete Failed', err?.message);
-    }
   };
 
   const hasActiveFilters = Boolean(
@@ -335,7 +299,6 @@ export const SellersView: React.FC = () => {
               setEditingSeller(seller);
               setIsAddSellerOpen(true);
             }}
-            onDeleteSeller={(seller) => setDeletingSeller(seller)}
             onSortChange={(field) =>
               setFilters((prev) => ({
                 ...prev,
@@ -365,7 +328,6 @@ export const SellersView: React.FC = () => {
         onOpenAssignModal={() => {}}
         onBulkStatusChange={handleBulkStatusUpdate}
         onExportSelected={handleExportSelected}
-        onBulkDelete={() => setIsBulkDeleteModalOpen(true)}
       />
 
       {/* Add / Edit Seller Modal (Clean with only requested options) */}
@@ -377,31 +339,6 @@ export const SellersView: React.FC = () => {
         }}
         sellerToEdit={editingSeller}
       />
-
-      {/* Delete Modals */}
-      {deletingSeller && (
-        <ConfirmationModal
-          isOpen={Boolean(deletingSeller)}
-          onClose={() => setDeletingSeller(null)}
-          onConfirm={handleSingleDelete}
-          title="Delete Store Record"
-          message={`Are you sure you want to delete "${deletingSeller.shopName || deletingSeller.name}"?`}
-          confirmText="Yes, Delete"
-          isDestructive={true}
-        />
-      )}
-
-      {isBulkDeleteModalOpen && (
-        <ConfirmationModal
-          isOpen={isBulkDeleteModalOpen}
-          onClose={() => setIsBulkDeleteModalOpen(false)}
-          onConfirm={handleBulkDelete}
-          title={`Delete ${selectedIds.length} Records`}
-          message={`Are you sure you want to delete ${selectedIds.length} selected store records?`}
-          confirmText="Delete Selected"
-          isDestructive={true}
-        />
-      )}
     </div>
   );
 };

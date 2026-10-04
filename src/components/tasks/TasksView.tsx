@@ -287,13 +287,6 @@ export const TasksView: React.FC = () => {
                       >
                         <Edit2 className="w-3.5 h-3.5" />
                       </button>
-                      <button
-                        onClick={() => setDeletingTask(task)}
-                        className="p-1 rounded text-slate-500 hover:text-rose-400"
-                        title="Delete Task"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
                     </div>
                   </div>
 
@@ -345,19 +338,6 @@ export const TasksView: React.FC = () => {
         sellers={sellers}
         taskToEdit={editingTask}
       />
-
-      {/* Delete Confirmation Modal */}
-      {deletingTask && (
-        <ConfirmationModal
-          isOpen={Boolean(deletingTask)}
-          onClose={() => setDeletingTask(null)}
-          onConfirm={handleDelete}
-          title="Delete Task"
-          message={`Are you sure you want to delete the task "${deletingTask.title}"?`}
-          confirmText="Delete Task"
-          isDestructive={true}
-        />
-      )}
     </div>
   );
 };

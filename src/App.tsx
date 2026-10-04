@@ -11,7 +11,7 @@ import { SettingsView } from './components/settings/SettingsView';
 import { SellerProfileDrawer } from './components/profile/SellerProfileDrawer';
 import { AddSellerModal } from './components/sellers/AddSellerModal';
 import { AddDiscoveredModal } from './components/research/AddDiscoveredModal';
-import { checkIfNeedsRealDataSync, clearAndSeedRealDatabase } from './lib/db/seed';
+import { checkDatabaseEmpty, seedViptoDatabase } from './lib/db/seed';
 import { Seller } from './types';
 
 const CRMAppContent: React.FC = () => {
@@ -27,13 +27,13 @@ const CRMAppContent: React.FC = () => {
   const { info, success } = useToast();
   const [editingSeller, setEditingSeller] = useState<Seller | null>(null);
 
-  // Auto-sync: Check if Firestore contains old dummy data and replace with real CRM database records
+  // Safe initial seed: Only populate sample stores if the database is completely empty (0 documents)
   useEffect(() => {
-    checkIfNeedsRealDataSync().then((needsSync) => {
-      if (needsSync) {
-        info('Syncing Database', 'Loading real store records from Crm Database CSV...');
-        clearAndSeedRealDatabase().then(() => {
-          success('Vipto CRM Live', '123 real store records successfully loaded!');
+    checkDatabaseEmpty().then((isEmpty) => {
+      if (isEmpty) {
+        info('Initializing Database', 'Loading initial store records into database...');
+        seedViptoDatabase().then(() => {
+          success('Vipto CRM Live', 'Database ready with store records!');
           triggerRefresh();
         }).catch(console.error);
       }

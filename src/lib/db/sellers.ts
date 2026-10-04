@@ -128,6 +128,61 @@ export async function checkSellerDuplicates(params: {
  * Fetch paginated sellers with server-side index filtering
  * Designed for 100,000+ records scalability
  */
+function getDocSortValue(doc: any, field: string): any {
+  const val = doc[field];
+  if (val === null || val === undefined) return '';
+  if (typeof val.toMillis === 'function') return val.toMillis();
+  if (typeof val.toDate === 'function') return val.toDate().getTime();
+  if (val instanceof Date) return val.getTime();
+  if (typeof val === 'string') return val.toLowerCase();
+  return val;
+}
+
+export function sanitizeFirestorePayload(obj: any): any {
+  if (obj === null || obj === undefined) return null;
+  if (typeof obj !== 'object') return obj;
+  if (
+    obj instanceof Date ||
+    typeof obj.toDate === 'function' ||
+    typeof obj.toMillis === 'function' ||
+    obj._methodName ||
+    obj._delegate ||
+    (obj.constructor && obj.constructor.name === 'FieldValue')
+  ) {
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj
+      .filter((item) => item !== undefined)
+      .map((item) => sanitizeFirestorePayload(item));
+  }
+
+  const clean: any = {};
+  for (const [key, val] of Object.entries(obj)) {
+    if (val !== undefined) {
+      if (
+        typeof val === 'object' &&
+        val !== null &&
+        !(val instanceof Date) &&
+        typeof (val as any).toDate !== 'function' &&
+        typeof (val as any).toMillis !== 'function' &&
+        !(val as any)._methodName &&
+        !(val as any)._delegate &&
+        !(val.constructor && val.constructor.name === 'FieldValue')
+      ) {
+        clean[key] = sanitizeFirestorePayload(val);
+      } else {
+        clean[key] = val;
+      }
+    }
+  }
+  return clean;
+}
+
+/**
+ * Fetch paginated sellers with server-side index filtering and seamless fallback
+ * Designed for 100,000+ records scalability and 100% resilience against missing indexes
+ */
 export async function getSellersPaginated(params: {
   filters?: FilterOptions;
   pageSize?: number;
@@ -141,80 +196,150 @@ export async function getSellersPaginated(params: {
   lastDoc: DocumentSnapshot | null;
   hasMore: boolean;
 }> {
-  const { filters = {}, pageSize = 25, lastDoc, firstDoc, direction = 'next', currentUser } = params;
+  const { filters = {}, pageSize = 40, lastDoc, firstDoc, direction = 'next', currentUser } = params;
   const sellersRef = collection(db, SELLERS_COLLECTION);
   
-  const constraints: any[] = [];
+  try {
+    const constraints: any[] = [];
 
-  // Role based scoping: If role is employee and not admin/manager, scope to assignedEmployeeId
-  if (currentUser && currentUser.role === 'employee' && !filters.assignedEmployeeId) {
-    constraints.push(where('assignedEmployeeId', '==', currentUser.uid));
-  } else if (filters.assignedEmployeeId) {
-    constraints.push(where('assignedEmployeeId', '==', filters.assignedEmployeeId));
-  }
+    // Role based scoping: If role is employee and not admin/manager, scope to assignedEmployeeId
+    if (currentUser && currentUser.role === 'employee' && !filters.assignedEmployeeId) {
+      constraints.push(where('assignedEmployeeId', '==', currentUser.uid));
+    } else if (filters.assignedEmployeeId) {
+      constraints.push(where('assignedEmployeeId', '==', filters.assignedEmployeeId));
+    }
 
-  // Exact match filters for Firestore compound queries
-  if (filters.sellerStatus) {
-    constraints.push(where('sellerStatus', '==', filters.sellerStatus));
-  }
-  if (filters.onboardingStatus) {
-    constraints.push(where('onboardingStatus', '==', filters.onboardingStatus));
-  }
-  if (filters.contactStatus) {
-    constraints.push(where('contactStatus', '==', filters.contactStatus));
-  }
-  if (filters.city) {
-    constraints.push(where('city', '==', filters.city));
-  }
-  if (filters.category) {
-    constraints.push(where('category', '==', filters.category));
-  }
-  if (filters.priority) {
-    constraints.push(where('priority', '==', filters.priority));
-  }
-  if (filters.leadSource) {
-    constraints.push(where('leadSource', '==', filters.leadSource));
-  }
+    // Exact match filters for Firestore compound queries
+    if (filters.sellerStatus) {
+      constraints.push(where('sellerStatus', '==', filters.sellerStatus));
+    }
+    if (filters.onboardingStatus) {
+      constraints.push(where('onboardingStatus', '==', filters.onboardingStatus));
+    }
+    if (filters.contactStatus) {
+      constraints.push(where('contactStatus', '==', filters.contactStatus));
+    }
+    if (filters.city) {
+      constraints.push(where('city', '==', filters.city));
+    }
+    if (filters.category) {
+      constraints.push(where('category', '==', filters.category));
+    }
+    if (filters.priority) {
+      constraints.push(where('priority', '==', filters.priority));
+    }
+    if (filters.leadSource) {
+      constraints.push(where('leadSource', '==', filters.leadSource));
+    }
 
-  // Global or text search token matching
-  if (filters.searchQuery && filters.searchQuery.trim()) {
-    const searchToken = filters.searchQuery.trim().toLowerCase();
-    constraints.push(where('searchKeywords', 'array-contains', searchToken));
+    // Global or text search token matching
+    if (filters.searchQuery && filters.searchQuery.trim()) {
+      const searchToken = filters.searchQuery.trim().toLowerCase();
+      constraints.push(where('searchKeywords', 'array-contains', searchToken));
+    }
+
+    // Default sorting
+    const sortField = filters.sortBy || 'createdAt';
+    const sortDir = filters.sortDirection || 'desc';
+    constraints.push(orderBy(sortField, sortDir));
+
+    // Pagination cursors
+    if (direction === 'next' && lastDoc) {
+      constraints.push(startAfter(lastDoc));
+    } else if (direction === 'prev' && firstDoc) {
+      constraints.push(endBefore(firstDoc));
+    }
+
+    // Request pageSize + 1 to detect if more pages exist
+    constraints.push(limit(pageSize + 1));
+
+    const q = query(sellersRef, ...constraints);
+    const snapshot = await getDocs(q);
+
+    const docs = snapshot.docs;
+    const hasMore = docs.length > pageSize;
+    const pageDocs = hasMore ? docs.slice(0, pageSize) : docs;
+
+    const sellers: Seller[] = pageDocs.map((docSnap) => ({
+      id: docSnap.id,
+      ...docSnap.data(),
+    } as Seller));
+
+    return {
+      sellers,
+      firstDoc: pageDocs.length > 0 ? pageDocs[0] : null,
+      lastDoc: pageDocs.length > 0 ? pageDocs[pageDocs.length - 1] : null,
+      hasMore,
+    };
+  } catch (err) {
+    console.warn('Firestore compound query failed or requires index. Falling back to resilient fetch:', err);
+
+    // Fallback: Fetch collection and filter/sort in-memory so newly added entries are NEVER dropped
+    const allSnap = await getDocs(sellersRef);
+    let allSellers: Seller[] = allSnap.docs.map((docSnap) => ({
+      id: docSnap.id,
+      ...docSnap.data(),
+    } as Seller));
+
+    // Apply filters
+    if (currentUser && currentUser.role === 'employee' && !filters.assignedEmployeeId) {
+      allSellers = allSellers.filter((s) => s.assignedEmployeeId === currentUser.uid);
+    } else if (filters.assignedEmployeeId) {
+      allSellers = allSellers.filter((s) => s.assignedEmployeeId === filters.assignedEmployeeId);
+    }
+
+    if (filters.sellerStatus) {
+      allSellers = allSellers.filter((s) => s.sellerStatus === filters.sellerStatus);
+    }
+    if (filters.onboardingStatus) {
+      allSellers = allSellers.filter((s) => s.onboardingStatus === filters.onboardingStatus);
+    }
+    if (filters.contactStatus) {
+      allSellers = allSellers.filter((s) => s.contactStatus === filters.contactStatus);
+    }
+    if (filters.city) {
+      allSellers = allSellers.filter((s) => s.city?.toLowerCase() === filters.city?.toLowerCase());
+    }
+    if (filters.category) {
+      allSellers = allSellers.filter((s) => s.category?.toLowerCase() === filters.category?.toLowerCase());
+    }
+    if (filters.priority) {
+      allSellers = allSellers.filter((s) => s.priority === filters.priority);
+    }
+    if (filters.leadSource) {
+      allSellers = allSellers.filter((s) => s.leadSource === filters.leadSource);
+    }
+    if (filters.searchQuery && filters.searchQuery.trim()) {
+      const token = filters.searchQuery.trim().toLowerCase();
+      allSellers = allSellers.filter((s) =>
+        (s.shopName || s.name || '').toLowerCase().includes(token) ||
+        (s.phone || '').includes(token) ||
+        (s.city || '').toLowerCase().includes(token) ||
+        (s.category || '').toLowerCase().includes(token) ||
+        (s.createdByName || '').toLowerCase().includes(token)
+      );
+    }
+
+    // Sort
+    const sortField = filters.sortBy || 'createdAt';
+    const sortDir = filters.sortDirection || 'desc';
+    allSellers.sort((a, b) => {
+      const valA = getDocSortValue(a, sortField);
+      const valB = getDocSortValue(b, sortField);
+      if (valA < valB) return sortDir === 'asc' ? -1 : 1;
+      if (valA > valB) return sortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    const pageSellers = allSellers.slice(0, pageSize);
+
+    return {
+      sellers: pageSellers,
+      firstDoc: null,
+      lastDoc: null,
+      hasMore: allSellers.length > pageSize,
+    };
   }
-
-  // Default sorting
-  const sortField = filters.sortBy || 'createdAt';
-  const sortDir = filters.sortDirection || 'desc';
-  constraints.push(orderBy(sortField, sortDir));
-
-  // Pagination cursors
-  if (direction === 'next' && lastDoc) {
-    constraints.push(startAfter(lastDoc));
-  } else if (direction === 'prev' && firstDoc) {
-    constraints.push(endBefore(firstDoc));
-  }
-
-  // Request pageSize + 1 to detect if more pages exist
-  constraints.push(limit(pageSize + 1));
-
-  const q = query(sellersRef, ...constraints);
-  const snapshot = await getDocs(q);
-
-  const docs = snapshot.docs;
-  const hasMore = docs.length > pageSize;
-  const pageDocs = hasMore ? docs.slice(0, pageSize) : docs;
-
-  const sellers: Seller[] = pageDocs.map(docSnap => ({
-    id: docSnap.id,
-    ...docSnap.data()
-  } as Seller));
-
-  return {
-    sellers,
-    firstDoc: pageDocs.length > 0 ? pageDocs[0] : null,
-    lastDoc: pageDocs.length > 0 ? pageDocs[pageDocs.length - 1] : null,
-    hasMore,
-  };
 }
 
 /**
@@ -222,33 +347,15 @@ export async function getSellersPaginated(params: {
  */
 export async function getSellerById(id: string): Promise<Seller | null> {
   if (!id) return null;
-  const docRef = doc(db, SELLERS_COLLECTION, id);
-  const snap = await getDoc(docRef);
-  if (!snap.exists()) return null;
-  return { id: snap.id, ...snap.data() } as Seller;
-}
-
-export function sanitizeFirestorePayload(obj: any): any {
-  if (obj === null || obj === undefined) return null;
-  if (typeof obj !== 'object') return obj;
-  if (obj instanceof Date || typeof obj.toDate === 'function') return obj;
-  if (Array.isArray(obj)) {
-    return obj
-      .filter((item) => item !== undefined)
-      .map((item) => sanitizeFirestorePayload(item));
+  try {
+    const docRef = doc(db, SELLERS_COLLECTION, id);
+    const snap = await getDoc(docRef);
+    if (!snap.exists()) return null;
+    return { id: snap.id, ...snap.data() } as Seller;
+  } catch (err) {
+    console.error('Error in getSellerById:', err);
+    return null;
   }
-
-  const clean: any = {};
-  for (const [key, val] of Object.entries(obj)) {
-    if (val !== undefined) {
-      if (typeof val === 'object' && val !== null && !(val instanceof Date) && typeof (val as any).toDate !== 'function') {
-        clean[key] = sanitizeFirestorePayload(val);
-      } else {
-        clean[key] = val;
-      }
-    }
-  }
-  return clean;
 }
 
 /**

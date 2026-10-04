@@ -291,14 +291,6 @@ export const TasksTab: React.FC<TasksTabProps> = ({ seller }) => {
                     </div>
                   </div>
                 </div>
-
-                <button
-                  onClick={() => handleDelete(task.id)}
-                  className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-slate-800 transition-colors shrink-0"
-                  title="Delete Task"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
               </div>
             );
           })
